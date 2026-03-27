@@ -2,12 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pathweaver VR/MR</title>
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Babel for in-browser JSX compilation -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         body, html, #root {
             margin: 0;
@@ -15,82 +13,107 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background: black;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #050505;
+            font-family: system-ui, -apple-system, sans-serif;
+            color: white;
         }
-        /* Ensure the canvas takes up the full screen and prevents mobile scrolling */
         canvas {
             display: block;
             touch-action: none;
         }
+        /* Loading overlay */
+        #loading {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: #000; z-index: 100;
+            transition: opacity 0.5s ease;
+        }
     </style>
+    <!-- Import Map for clean module resolution -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@19",
+            "react-dom": "https://esm.sh/react-dom@19",
+            "react-dom/client": "https://esm.sh/react-dom@19/client",
+            "three": "https://esm.sh/three@0.170.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.17.10?external=three,react",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.114.0?external=three,react,@react-three/fiber",
+            "@react-three/xr": "https://esm.sh/@react-three/xr@6.0.13?external=three,react,@react-three/fiber",
+            "zustand": "https://esm.sh/zustand@5.0.1"
+        }
+    }
+    </script>
 </head>
 <body>
+    <div id="loading">
+        <h1 class="text-2xl font-bold mb-4 tracking-widest text-cyan-400">PATHWEAVER</h1>
+        <div class="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+        <p class="mt-4 text-sm opacity-50">Initializing XR Engine...</p>
+    </div>
     <div id="root"></div>
 
-    <!-- Note the use of type="text/babel" and data-type="module" to allow ES imports + JSX -->
-    <script type="text/babel" data-type="module">
-        // --- External Dependencies (Loaded via ESM CDN) ---
-        // Added explicit three mapping to prevent resolution errors in the browser environment
-        import * as THREE from 'https://esm.sh/three';
-        import React, { Suspense, useRef, useState, useEffect, useMemo } from 'https://esm.sh/react@19?external=three';
-        import { createRoot } from 'https://esm.sh/react-dom@19/client?external=react,three';
-        import { Canvas, useFrame, useThree } from 'https://esm.sh/@react-three/fiber?external=three,react';
-        import { XR, createXRStore, XRButton, useXR } from 'https://esm.sh/@react-three/xr?external=three,react,@react-three/fiber';
-        import { Sky, OrbitControls, Environment, ContactShadows, Text, Float, RoundedBox, Trail } from 'https://esm.sh/@react-three/drei?external=three,react,@react-three/fiber';
-        import { create } from 'https://esm.sh/zustand';
+    <script type="module">
+        import React, { Suspense, useRef, useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import * as THREE from 'three';
+        import { Canvas, useFrame, useThree } from '@react-three/fiber';
+        import { XR, createXRStore, XRButton, useXR } from '@react-three/xr';
+        import { Sky, OrbitControls, Environment, ContactShadows, Text, Float, RoundedBox, Trail } from '@react-three/drei';
+        import { create } from 'zustand';
 
-        // --- Audio Service (Procedural Sound) ---
+        // --- Audio Service (Optimized for WebXR) ---
         class AudioService {
             constructor() { this.ctx = null; }
             init() { 
                 if (!this.ctx) {
-                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
                 }
             }
+            resume() {
+                if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+            }
             playChime(pitch = 440) {
-                this.init();
-                if (this.ctx.state === 'suspended') this.ctx.resume();
+                this.init(); this.resume();
                 const osc = this.ctx.createOscillator();
                 const gain = this.ctx.createGain();
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(pitch, this.ctx.currentTime);
                 osc.frequency.exponentialRampToValueAtTime(pitch * 1.5, this.ctx.currentTime + 0.1);
-                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
                 osc.connect(gain); gain.connect(this.ctx.destination);
                 osc.start(); osc.stop(this.ctx.currentTime + 0.3);
             }
             playFall() {
-                this.init();
-                if (this.ctx.state === 'suspended') this.ctx.resume();
+                this.init(); this.resume();
                 const osc = this.ctx.createOscillator();
                 const gain = this.ctx.createGain();
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(220, this.ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 1);
-                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.8);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.8);
                 osc.connect(gain); gain.connect(this.ctx.destination);
-                osc.start(); osc.stop(this.ctx.currentTime + 1);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.8);
             }
             playReset() {
-                this.init();
-                if (this.ctx.state === 'suspended') this.ctx.resume();
+                this.init(); this.resume();
                 const osc = this.ctx.createOscillator();
                 const gain = this.ctx.createGain();
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(110, this.ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(440, this.ctx.currentTime + 0.5);
-                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.5);
+                osc.frequency.exponentialRampToValueAtTime(440, this.ctx.currentTime + 0.4);
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.4);
                 osc.connect(gain); gain.connect(this.ctx.destination);
-                osc.start(); osc.stop(this.ctx.currentTime + 0.5);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.4);
             }
         }
         const audioService = new AudioService();
 
-        // --- Game State Management ---
+        // --- Game Logic Store ---
         const BASE_SPEED = 1.2;
         const SPEED_INCREMENT = 0.03;
         const useGameStore = create((set) => ({
@@ -113,23 +136,27 @@
 
         // --- Constants ---
         const TILE_SIZE = 0.6;
-        const COOLDOWN = 400;
+        const COOLDOWN = 350;
         const COLORS = ['#ff0055', '#00ffcc', '#aaff00', '#ff00ff', '#00ffff', '#ffaa00'];
 
-        // --- Road Component ---
+        // --- Road Component (Optimized for Mobile XR) ---
         function Road() {
             const { tiles, addTile } = useGameStore();
             const [lastPlacementTime, setLastPlacementTime] = useState(0);
             const [ghostPosition, setGhostPosition] = useState(null);
             const { camera } = useThree();
+            const xr = useXR();
 
             const lastTile = tiles[tiles.length - 1];
             const lastPos = useMemo(() => new THREE.Vector3(...lastTile.position), [lastTile.position]);
 
             useFrame(() => {
+                // Determine placement direction
                 const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                 forward.y = 0; 
+                if (forward.lengthSq() < 0.01) forward.set(0, 0, -1);
                 forward.normalize();
+                
                 const nextPos = lastPos.clone().add(forward.multiplyScalar(TILE_SIZE));
                 setGhostPosition([nextPos.x, nextPos.y, nextPos.z]);
             });
@@ -146,33 +173,28 @@
             };
 
             useEffect(() => {
-                window.addEventListener('mousedown', handlePlace);
-                window.addEventListener('touchstart', handlePlace);
-                return () => {
-                    window.removeEventListener('mousedown', handlePlace);
-                    window.removeEventListener('touchstart', handlePlace);
-                };
+                // Pointer events are more reliable than mouse events on Quest
+                window.addEventListener('pointerdown', handlePlace);
+                return () => window.removeEventListener('pointerdown', handlePlace);
             }, [ghostPosition, lastPlacementTime]);
 
-            return (
-                <group>
-                    {tiles.map((tile, index) => (
-                        <mesh key={tile.id} position={tile.position} receiveShadow castShadow>
-                            <boxGeometry args={[TILE_SIZE, 0.05, TILE_SIZE]} />
-                            <meshStandardMaterial 
-                                color={tile.color} 
-                                emissive={tile.color} 
-                                emissiveIntensity={(index / 10) + 0.5} 
-                            />
-                        </mesh>
-                    ))}
-                    {ghostPosition && (
-                        <mesh position={ghostPosition}>
-                            <boxGeometry args={[TILE_SIZE, 0.02, TILE_SIZE]} />
-                            <meshStandardMaterial color="white" transparent opacity={0.3} />
-                        </mesh>
-                    )}
-                </group>
+            return React.createElement('group', null,
+                tiles.map((tile, index) => React.createElement('mesh', { 
+                    key: tile.id, 
+                    position: tile.position, 
+                    receiveShadow: true 
+                },
+                    React.createElement('boxGeometry', { args: [TILE_SIZE, 0.05, TILE_SIZE] }),
+                    React.createElement('meshStandardMaterial', { 
+                        color: tile.color, 
+                        emissive: tile.color, 
+                        emissiveIntensity: Math.min(2, index / 15 + 0.5) 
+                    })
+                )),
+                ghostPosition && React.createElement('mesh', { position: ghostPosition },
+                    React.createElement('boxGeometry', { args: [TILE_SIZE, 0.02, TILE_SIZE] }),
+                    React.createElement('meshStandardMaterial', { color: 'white', transparent: true, opacity: 0.2 })
+                )
             );
         }
 
@@ -185,81 +207,63 @@
             const [isFalling, setIsFalling] = useState(false);
 
             useFrame((state, delta) => {
+                const dt = Math.min(delta, 0.1); // Cap delta to prevent huge jumps on lag
                 if (isFalling) {
                     if (carRef.current) {
-                        carRef.current.position.y -= 5 * delta;
-                        carRef.current.rotation.x += 10 * delta;
-                        if (carRef.current.position.y < -5) {
-                            resetGame(); 
-                            setCurrentIndex(0); 
-                            setProgress(0); 
-                            setIsFalling(false);
+                        carRef.current.position.y -= 6 * dt;
+                        carRef.current.rotation.x += 8 * dt;
+                        if (carRef.current.position.y < -4) {
+                            resetGame(); setCurrentIndex(0); setProgress(0); setIsFalling(false);
                             if (carRef.current) carRef.current.position.y = 0.1;
                         }
                     }
                     return;
                 }
                 if (tiles.length <= 1) return;
-                
                 const currentTile = tiles[currentIndex];
                 const nextTile = tiles[currentIndex + 1];
                 
                 if (!nextTile && progress >= 1) {
-                    setIsFalling(true); 
-                    audioService.playFall(); 
-                    return;
+                    setIsFalling(true); audioService.playFall(); return;
                 }
                 
-                const newProgress = progress + (speed * delta) / TILE_SIZE;
+                const newProgress = progress + (speed * dt) / TILE_SIZE;
                 setProgress(newProgress);
                 
                 if (newProgress >= 1 && currentIndex + 1 < tiles.length) {
-                    setCurrentIndex(currentIndex + 1); 
-                    setProgress(newProgress - 1);
+                    setCurrentIndex(currentIndex + 1); setProgress(newProgress - 1);
                 }
                 
                 if (carRef.current) {
                     const start = new THREE.Vector3(...currentTile.position);
-                    const end = nextTile 
-                        ? new THREE.Vector3(...nextTile.position) 
-                        : start.clone().add(new THREE.Vector3(0, 0, -TILE_SIZE).applyQuaternion(carRef.current.quaternion));
-                    
+                    const end = nextTile ? new THREE.Vector3(...nextTile.position) : start.clone().add(new THREE.Vector3(0, 0, -TILE_SIZE).applyQuaternion(carRef.current.quaternion));
                     const pos = start.clone().lerp(end, progress);
-                    carRef.current.position.copy(pos); 
-                    carRef.current.position.y += 0.1;
+                    carRef.current.position.copy(pos); carRef.current.position.y += 0.08;
                     
                     if (nextTile) {
                         const lookAt = new THREE.Vector3(...nextTile.position);
-                        lookAt.y = carRef.current.position.y; 
-                        carRef.current.lookAt(lookAt);
+                        lookAt.y = carRef.current.position.y; carRef.current.lookAt(lookAt);
                     }
                 }
             });
 
             useEffect(() => {
                 if (tiles.length === 1) {
-                    setCurrentIndex(0); 
-                    setProgress(0); 
-                    setIsFalling(false);
-                    if (carRef.current) { 
-                        carRef.current.position.set(0, 0.1, 0); 
-                        carRef.current.rotation.set(0, 0, 0); 
-                    }
+                    setCurrentIndex(0); setProgress(0); setIsFalling(false);
+                    if (carRef.current) { carRef.current.position.set(0, 0.08, 0); carRef.current.rotation.set(0, 0, 0); }
                 }
             }, [tiles.length]);
 
-            return (
-                <group ref={carRef}>
-                    <mesh castShadow>
-                        <boxGeometry args={[0.15, 0.08, 0.22]} />
-                        <meshStandardMaterial 
-                            color={isFalling ? "red" : "white"} 
-                            emissive={isFalling ? "red" : "white"} 
-                            emissiveIntensity={0.5} 
-                        />
-                    </mesh>
-                    <Trail width={1} length={8} color={isFalling ? "red" : "cyan"} attenuation={(t) => t * t} />
-                </group>
+            return React.createElement('group', { ref: carRef },
+                React.createElement('mesh', { castShadow: true },
+                    React.createElement('boxGeometry', { args: [0.12, 0.06, 0.18] }),
+                    React.createElement('meshStandardMaterial', { 
+                        color: isFalling ? "#ff0000" : "#ffffff", 
+                        emissive: isFalling ? "#ff0000" : "#ffffff", 
+                        emissiveIntensity: 0.8 
+                    })
+                ),
+                React.createElement(Trail, { width: 0.8, length: 6, color: isFalling ? "#ff0000" : "#00ffff", attenuation: (t) => t * t })
             );
         }
 
@@ -271,39 +275,26 @@
 
             useFrame(() => {
                 if (!hudRef.current) return;
-                const targetPos = new THREE.Vector3(0.8, -0.5, -1.5).applyQuaternion(camera.quaternion).add(camera.position);
+                const targetPos = new THREE.Vector3(0.7, -0.4, -1.2).applyQuaternion(camera.quaternion).add(camera.position);
                 hudRef.current.position.lerp(targetPos, 0.1);
                 hudRef.current.quaternion.slerp(camera.quaternion, 0.1);
             });
 
-            return (
-                <group ref={hudRef}>
-                    <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-                        <RoundedBox args={[0.6, 0.4, 0.02]} radius={0.02}>
-                            <meshStandardMaterial color="#111111" transparent opacity={0.8} />
-                        </RoundedBox>
-                        <Text position={[0, 0.05, 0.02]} fontSize={0.15} color="#00ffcc">
-                            {level}
-                        </Text>
-                        <Text position={[0, -0.05, 0.02]} fontSize={0.04} color="white">
-                            TILES PLACED
-                        </Text>
-                        <Text position={[0, -0.12, 0.02]} fontSize={0.03} color="#ffaa00">
-                            {`SPEED: ${speed.toFixed(2)} m/s`}
-                        </Text>
-                        <mesh 
-                            position={[0, -0.2, 0.02]} 
-                            onClick={() => { resetGame(); audioService.playReset(); }}
-                        >
-                            <RoundedBox args={[0.3, 0.1, 0.02]} radius={0.01}>
-                                <meshStandardMaterial color="#ff0055" emissive="#ff0055" emissiveIntensity={0.5} />
-                            </RoundedBox>
-                            <Text position={[0, 0, 0.011]} fontSize={0.04} color="white">
-                                RESET
-                            </Text>
-                        </mesh>
-                    </Float>
-                </group>
+            return React.createElement('group', { ref: hudRef },
+                React.createElement(Float, { speed: 1.5, rotationIntensity: 0.2, floatIntensity: 0.2 },
+                    React.createElement(RoundedBox, { args: [0.5, 0.35, 0.01], radius: 0.015 },
+                        React.createElement('meshStandardMaterial', { color: "#050505", transparent: true, opacity: 0.85 })
+                    ),
+                    React.createElement(Text, { position: [0, 0.06, 0.015], fontSize: 0.12, color: "#00ffcc" }, level),
+                    React.createElement(Text, { position: [0, -0.04, 0.015], fontSize: 0.03, color: "#ffffff" }, "TILES PLACED"),
+                    React.createElement(Text, { position: [0, -0.1, 0.015], fontSize: 0.025, color: "#ffaa00" }, `SPEED: ${speed.toFixed(2)}`),
+                    React.createElement('mesh', { position: [0, -0.16, 0.015], onClick: () => { resetGame(); audioService.playReset(); } },
+                        React.createElement(RoundedBox, { args: [0.25, 0.08, 0.01], radius: 0.01 },
+                            React.createElement('meshStandardMaterial', { color: "#ff0055", emissive: "#ff0055", emissiveIntensity: 0.6 })
+                        ),
+                        React.createElement(Text, { position: [0, 0, 0.006], fontSize: 0.035, color: "white" }, "RESET")
+                    )
+                )
             );
         }
 
@@ -315,57 +306,67 @@
             const xr = useXR();
             
             useEffect(() => {
-                if (xr && xr.session) {
+                if (xr.session) {
                     setMode(xr.session.environmentBlendMode === 'additive' ? 'MR' : 'VR');
+                    audioService.init(); // Initialize audio on session start
                 }
-            }, [xr?.session]);
+            }, [xr.session]);
 
-            return (
-                <Suspense fallback={null}>
-                    <Environment preset="night" />
-                    <ambientLight intensity={0.5} />
-                    <pointLight position={[10, 10, 10]} intensity={1} castShadow />
-                    
-                    {mode === 'VR' && (
-                        <>
-                            <Sky sunPosition={[100, 20, 100]} />
-                            <gridHelper args={[100, 100, 0x444444, 0x222222]} position={[0, -0.01, 0]} />
-                        </>
-                    )}
-                    
-                    <Road />
-                    <Vehicle />
-                    <HUD />
-                    <OrbitControls makeDefault />
-                    <ContactShadows opacity={0.4} scale={10} blur={2} far={10} resolution={256} color="#000000" />
-                </Suspense>
+            return React.createElement(React.Fragment, null,
+                React.createElement(Suspense, { fallback: null },
+                    React.createElement(Environment, { preset: "night" }),
+                    React.createElement('ambientLight', { intensity: 0.4 }),
+                    React.createElement('pointLight', { position: [5, 5, 5], intensity: 0.8, castShadow: true }),
+                    mode === 'VR' && React.createElement(React.Fragment, null,
+                        React.createElement(Sky, { sunPosition: [100, 10, 100] }),
+                        React.createElement('gridHelper', { args: [50, 50, 0x333333, 0x111111], position: [0, -0.01, 0] })
+                    ),
+                    React.createElement(Road),
+                    React.createElement(Vehicle),
+                    React.createElement(HUD),
+                    React.createElement(OrbitControls, { makeDefault: true, enableDamping: true }),
+                    React.createElement(ContactShadows, { opacity: 0.3, scale: 8, blur: 1.5, far: 5, resolution: 128, color: "#000000" })
+                )
             );
         }
 
         function App() {
-            return (
-                <div className="w-full h-screen bg-black relative">
-                    <div className="absolute top-4 left-4 z-10 flex gap-2">
-                        <XRButton store={store} mode="immersive-vr" className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 border border-white/20 transition-all cursor-pointer backdrop-blur-md">
-                            Enter VR
-                        </XRButton>
-                        <XRButton store={store} mode="immersive-ar" className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 border border-white/20 transition-all cursor-pointer backdrop-blur-md">
-                            Enter MR
-                        </XRButton>
-                    </div>
-                    
-                    <Canvas shadows camera={{ position: [0, 2, 5], fov: 75 }}>
-                        <XR store={store}>
-                            <SceneContent />
-                        </XR>
-                    </Canvas>
-                </div>
+            useEffect(() => {
+                // Hide loading screen once React is ready
+                const loader = document.getElementById('loading');
+                if (loader) loader.style.opacity = '0';
+                setTimeout(() => loader && loader.remove(), 600);
+            }, []);
+
+            return React.createElement('div', { className: "w-full h-screen bg-black relative select-none" },
+                React.createElement('div', { className: "absolute top-6 left-6 z-10 flex flex-col gap-3" },
+                    React.createElement(XRButton, { 
+                        store: store, 
+                        mode: "immersive-vr", 
+                        className: "px-6 py-3 bg-cyan-600/20 text-cyan-400 rounded-full hover:bg-cyan-600/40 border border-cyan-400/30 backdrop-blur-md transition-all font-bold tracking-wider text-xs uppercase" 
+                    }, "Enter VR"),
+                    React.createElement(XRButton, { 
+                        store: store, 
+                        mode: "immersive-ar", 
+                        className: "px-6 py-3 bg-fuchsia-600/20 text-fuchsia-400 rounded-full hover:bg-fuchsia-600/40 border border-fuchsia-400/30 backdrop-blur-md transition-all font-bold tracking-wider text-xs uppercase" 
+                    }, "Enter MR")
+                ),
+                React.createElement(Canvas, { 
+                    shadows: true, 
+                    camera: { position: [0, 1.5, 3], fov: 70 },
+                    gl: { antialias: true, alpha: true, powerPreference: 'high-performance' },
+                    dpr: [1, 1.5] // Limit DPR for Quest performance
+                },
+                    React.createElement(XR, { store: store },
+                        React.createElement(SceneContent)
+                    )
+                )
             );
         }
 
         // --- Render ---
-        const rootElement = document.getElementById('root');
-        createRoot(rootElement).render(<App />);
+        createRoot(document.getElementById('root')).render(React.createElement(App));
     </script>
 </body>
 </html>
+
