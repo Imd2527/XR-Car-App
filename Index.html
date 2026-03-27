@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Pathweaver VR/MR</title>
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -16,6 +16,7 @@
             background: #050505;
             font-family: system-ui, -apple-system, sans-serif;
             color: white;
+            touch-action: none; /* Prevent browser zooming/scrolling */
         }
         canvas {
             display: block;
@@ -34,14 +35,14 @@
     <script type="importmap">
     {
         "imports": {
-            "react": "https://esm.sh/react@19",
-            "react-dom": "https://esm.sh/react-dom@19",
-            "react-dom/client": "https://esm.sh/react-dom@19/client",
-            "three": "https://esm.sh/three@0.170.0",
-            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.17.10?external=three,react",
-            "@react-three/drei": "https://esm.sh/@react-three/drei@9.114.0?external=three,react,@react-three/fiber",
-            "@react-three/xr": "https://esm.sh/@react-three/xr@6.0.13?external=three,react,@react-three/fiber",
-            "zustand": "https://esm.sh/zustand@5.0.1"
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?external=three,react,react-dom",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?external=three,react,react-dom,@react-three/fiber",
+            "@react-three/xr": "https://esm.sh/@react-three/xr@6.0.13?external=three,react,react-dom,@react-three/fiber",
+            "zustand": "https://esm.sh/zustand@4.5.0"
         }
     }
     </script>
@@ -59,7 +60,7 @@
         import { createRoot } from 'react-dom/client';
         import * as THREE from 'three';
         import { Canvas, useFrame, useThree } from '@react-three/fiber';
-        import { XR, createXRStore, XRButton, useXR } from '@react-three/xr';
+        import { XR, createXRStore, useXR } from '@react-three/xr';
         import { Sky, OrbitControls, Environment, ContactShadows, Text, Float, RoundedBox, Trail } from '@react-three/drei';
         import { create } from 'zustand';
 
@@ -145,7 +146,6 @@
             const [lastPlacementTime, setLastPlacementTime] = useState(0);
             const [ghostPosition, setGhostPosition] = useState(null);
             const { camera } = useThree();
-            const xr = useXR();
 
             const lastTile = tiles[tiles.length - 1];
             const lastPos = useMemo(() => new THREE.Vector3(...lastTile.position), [lastTile.position]);
@@ -161,7 +161,8 @@
                 setGhostPosition([nextPos.x, nextPos.y, nextPos.z]);
             });
 
-            const handlePlace = () => {
+            const handlePlace = (e) => {
+                if (e) e.stopPropagation();
                 const now = Date.now();
                 if (now - lastPlacementTime < COOLDOWN) return;
                 if (ghostPosition) {
@@ -172,13 +173,15 @@
                 }
             };
 
-            useEffect(() => {
-                // Pointer events are more reliable than mouse events on Quest
-                window.addEventListener('pointerdown', handlePlace);
-                return () => window.removeEventListener('pointerdown', handlePlace);
-            }, [ghostPosition, lastPlacementTime]);
-
             return React.createElement('group', null,
+                // Invisible sphere to catch VR controller clicks and touch events
+                React.createElement('mesh', { 
+                    onPointerDown: handlePlace,
+                    visible: false 
+                },
+                    React.createElement('sphereGeometry', { args: [100, 8, 8] }),
+                    React.createElement('meshBasicMaterial', { side: THREE.BackSide })
+                ),
                 tiles.map((tile, index) => React.createElement('mesh', { 
                     key: tile.id, 
                     position: tile.position, 
@@ -306,11 +309,11 @@
             const xr = useXR();
             
             useEffect(() => {
-                if (xr.session) {
+                if (xr && xr.session) {
                     setMode(xr.session.environmentBlendMode === 'additive' ? 'MR' : 'VR');
                     audioService.init(); // Initialize audio on session start
                 }
-            }, [xr.session]);
+            }, [xr]);
 
             return React.createElement(React.Fragment, null,
                 React.createElement(Suspense, { fallback: null },
@@ -325,7 +328,7 @@
                     React.createElement(Vehicle),
                     React.createElement(HUD),
                     React.createElement(OrbitControls, { makeDefault: true, enableDamping: true }),
-                    React.createElement(ContactShadows, { opacity: 0.3, scale: 8, blur: 1.5, far: 5, resolution: 128, color: "#000000" })
+                    React.createElement(ContactShadows, { opacity: 0.3, scale: 8, blur: 1.5, far: 5, resolution: 128, color: "#000000", frames: 1 })
                 )
             );
         }
@@ -340,22 +343,20 @@
 
             return React.createElement('div', { className: "w-full h-screen bg-black relative select-none" },
                 React.createElement('div', { className: "absolute top-6 left-6 z-10 flex flex-col gap-3" },
-                    React.createElement(XRButton, { 
-                        store: store, 
-                        mode: "immersive-vr", 
-                        className: "px-6 py-3 bg-cyan-600/20 text-cyan-400 rounded-full hover:bg-cyan-600/40 border border-cyan-400/30 backdrop-blur-md transition-all font-bold tracking-wider text-xs uppercase" 
+                    React.createElement('button', { 
+                        onClick: () => store.enterVR(),
+                        className: "px-6 py-3 bg-cyan-600/20 text-cyan-400 rounded-full hover:bg-cyan-600/40 border border-cyan-400/30 backdrop-blur-md transition-all font-bold tracking-wider text-xs uppercase cursor-pointer" 
                     }, "Enter VR"),
-                    React.createElement(XRButton, { 
-                        store: store, 
-                        mode: "immersive-ar", 
-                        className: "px-6 py-3 bg-fuchsia-600/20 text-fuchsia-400 rounded-full hover:bg-fuchsia-600/40 border border-fuchsia-400/30 backdrop-blur-md transition-all font-bold tracking-wider text-xs uppercase" 
+                    React.createElement('button', { 
+                        onClick: () => store.enterAR(),
+                        className: "px-6 py-3 bg-fuchsia-600/20 text-fuchsia-400 rounded-full hover:bg-fuchsia-600/40 border border-fuchsia-400/30 backdrop-blur-md transition-all font-bold tracking-wider text-xs uppercase cursor-pointer" 
                     }, "Enter MR")
                 ),
                 React.createElement(Canvas, { 
                     shadows: true, 
                     camera: { position: [0, 1.5, 3], fov: 70 },
                     gl: { antialias: true, alpha: true, powerPreference: 'high-performance' },
-                    dpr: [1, 1.5] // Limit DPR for Quest performance
+                    dpr: 1 // Limit DPR for Quest performance
                 },
                     React.createElement(XR, { store: store },
                         React.createElement(SceneContent)
@@ -369,4 +370,3 @@
     </script>
 </body>
 </html>
-
