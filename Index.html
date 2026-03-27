@@ -3,214 +3,294 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pathweaver VR/MR | Infinite Builder</title>
+    <title>Pathweaver VR/MR</title>
+    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body, html, #root {
-            margin: 0; padding: 0; width: 100%; height: 100%;
-            overflow: hidden; background: #050505; color: white;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: black;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        #loading {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center; z-index: 100;
+        /* Ensure the canvas takes up the full screen */
+        canvas {
+            display: block;
         }
     </style>
-    <script type="importmap">
-    {
-        "imports": {
-            "react": "https://esm.sh/react@19",
-            "react-dom": "https://esm.sh/react-dom@19",
-            "react-dom/client": "https://esm.sh/react-dom@19/client",
-            "three": "https://esm.sh/three@0.170.0",
-            "@react-three/fiber": "https://esm.sh/@react-three/fiber@9",
-            "@react-three/drei": "https://esm.sh/@react-three/drei@10",
-            "@react-three/xr": "https://esm.sh/@react-three/xr@6",
-            "zustand": "https://esm.sh/zustand@5"
-        }
-    }
-    </script>
 </head>
 <body>
-    <div id="loading">
-        <h1 class="text-2xl font-bold mb-2">PATHWEAVER</h1>
-        <p class="text-gray-400 animate-pulse">Initializing Reality...</p>
-    </div>
     <div id="root"></div>
 
     <script type="module">
-        import React, { Suspense, useRef, useState, useEffect, useMemo } from 'react';
-        import { createRoot } from 'react-dom/client';
-        import * as THREE from 'three';
-        import { Canvas, useFrame, useThree } from '@react-three/fiber';
-        import { XR, createXRStore, XRButton, useXR } from '@react-three/xr';
-        import { Sky, OrbitControls, Environment, ContactShadows, Text, Float, RoundedBox, Trail } from '@react-three/drei';
-        import { create } from 'zustand';
+        // --- External Dependencies (Loaded via ESM CDN) ---
+        import React, { Suspense, useRef, useState, useEffect, useMemo } from 'https://esm.sh/react@19?external=three';
+        import { createRoot } from 'https://esm.sh/react-dom@19/client?external=react';
+        import * as THREE from 'https://esm.sh/three';
+        import { Canvas, useFrame, useThree } from 'https://esm.sh/@react-three/fiber?external=three,react';
+        import { XR, createXRStore, XRButton, useXR } from 'https://esm.sh/@react-three/xr?external=three,react,@react-three/fiber';
+        import { Sky, OrbitControls, Environment, ContactShadows, Text, Float, RoundedBox, Trail } from 'https://esm.sh/@react-three/drei?external=three,react,@react-three/fiber';
+        import { create } from 'https://esm.sh/zustand';
 
-        // --- Audio Engine ---
-        class AudioEngine {
+        // --- Audio Service (Procedural Sound) ---
+        class AudioService {
             constructor() { this.ctx = null; }
-            init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
-            play(freq, type = 'sine', duration = 0.3) {
+            init() { 
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+            playChime(pitch = 440) {
                 this.init();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
                 const osc = this.ctx.createOscillator();
                 const gain = this.ctx.createGain();
-                osc.type = type;
-                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(freq * 0.5, this.ctx.currentTime + duration);
-                gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + duration);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(pitch, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(pitch * 1.5, this.ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
                 osc.connect(gain); gain.connect(this.ctx.destination);
-                osc.start(); osc.stop(this.ctx.currentTime + duration);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.3);
+            }
+            playFall() {
+                this.init();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 1);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 1);
+            }
+            playReset() {
+                this.init();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(110, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(440, this.ctx.currentTime + 0.5);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.5);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.5);
             }
         }
-        const audio = new AudioEngine();
+        const audioService = new AudioService();
 
-        // --- State Management ---
-        const useGame = create((set) => ({
+        // --- Game State Management ---
+        const BASE_SPEED = 1.2;
+        const SPEED_INCREMENT = 0.03;
+        const useGameStore = create((set) => ({
             level: 1,
-            speed: 1.2,
-            tiles: [{ id: '0', position: [0, 0, 0], color: '#00ffcc' }],
-            addTile: (pos) => set((s) => ({
-                tiles: [...s.tiles, { id: Math.random().toString(), position: pos, color: `hsl(${s.level * 20 % 360}, 100%, 60%)` }],
-                level: s.level + 1,
-                speed: Math.min(3, 1.2 + (s.level * 0.02))
+            speed: BASE_SPEED,
+            mode: 'VR',
+            tiles: [{ id: 'start', position: [0, 0, 0], color: '#ff00ff' }],
+            addTile: (position, color) => set((state) => ({
+                tiles: [...state.tiles, { id: Math.random().toString(), position, color }],
+                level: state.level + 1,
+                speed: Math.min(2.5, BASE_SPEED + (Math.floor((state.level + 1) / 10) * SPEED_INCREMENT))
             })),
-            reset: () => set({ level: 1, speed: 1.2, tiles: [{ id: '0', position: [0, 0, 0], color: '#00ffcc' }] })
+            resetGame: () => set({
+                level: 1,
+                speed: BASE_SPEED,
+                tiles: [{ id: 'start', position: [0, 0, 0], color: '#ff00ff' }]
+            }),
+            setMode: (mode) => set({ mode }),
         }));
 
-        const store = createXRStore({ depthSensing: true, hand: true });
+        // --- Constants ---
+        const TILE_SIZE = 0.6;
+        const COOLDOWN = 400;
+        const COLORS = ['#ff0055', '#00ffcc', '#aaff00', '#ff00ff', '#00ffff', '#ffaa00'];
 
-        // --- Core Components ---
+        // --- Road Component ---
         function Road() {
-            const { tiles, addTile } = useGame();
-            const [ghost, setGhost] = useState([0, 0, -0.6]);
+            const { tiles, addTile } = useGameStore();
+            const [lastPlacementTime, setLastPlacementTime] = useState(0);
+            const [ghostPosition, setGhostPosition] = useState(null);
             const { camera } = useThree();
-            const TILE_S = 0.6;
+
+            const lastTile = tiles[tiles.length - 1];
+            const lastPos = useMemo(() => new THREE.Vector3(...lastTile.position), [lastTile.position]);
 
             useFrame(() => {
-                const last = new THREE.Vector3(...tiles[tiles.length - 1].position);
-                const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                dir.y = 0; dir.normalize();
-                const next = last.add(dir.multiplyScalar(TILE_S));
-                setGhost([next.x, next.y, next.z]);
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                forward.y = 0; forward.normalize();
+                const nextPos = lastPos.clone().add(forward.multiplyScalar(TILE_SIZE));
+                setGhostPosition([nextPos.x, nextPos.y, nextPos.z]);
             });
 
-            const place = () => {
-                audio.play(440 + (tiles.length * 20));
-                addTile(ghost);
+            const handlePlace = () => {
+                const now = Date.now();
+                if (now - lastPlacementTime < COOLDOWN) return;
+                if (ghostPosition) {
+                    const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                    addTile(ghostPosition, color);
+                    setLastPlacementTime(now);
+                    audioService.playChime(440 + (tiles.length * 10));
+                }
             };
 
-            // Input Listeners
             useEffect(() => {
-                const handleDown = (e) => { if(e.button === 0) place(); };
-                window.addEventListener('mousedown', handleDown);
-                return () => window.removeEventListener('mousedown', handleDown);
-            }, [ghost]);
+                window.addEventListener('mousedown', handlePlace);
+                return () => window.removeEventListener('mousedown', handlePlace);
+            }, [ghostPosition, lastPlacementTime]);
 
             return React.createElement('group', null,
-                tiles.map((t, i) => React.createElement('mesh', { key: t.id, position: t.position },
-                    React.createElement('boxGeometry', { args: [TILE_S * 0.95, 0.05, TILE_S * 0.95] }),
-                    React.createElement('meshStandardMaterial', { color: t.color, emissive: t.color, emissiveIntensity: 0.5 })
+                tiles.map((tile, index) => React.createElement('mesh', { key: tile.id, position: tile.position, receiveShadow: true, castShadow: true },
+                    React.createElement('boxGeometry', { args: [TILE_SIZE, 0.05, TILE_SIZE] }),
+                    React.createElement('meshStandardMaterial', { color: tile.color, emissive: tile.color, emissiveIntensity: index / 10 + 0.5 })
                 )),
-                React.createElement('mesh', { position: ghost },
-                    React.createElement('boxGeometry', { args: [TILE_S, 0.02, TILE_S] }),
-                    React.createElement('meshStandardMaterial', { color: 'white', transparent: true, opacity: 0.2 })
+                ghostPosition && React.createElement('mesh', { position: ghostPosition },
+                    React.createElement('boxGeometry', { args: [TILE_SIZE, 0.02, TILE_SIZE] }),
+                    React.createElement('meshStandardMaterial', { color: 'white', transparent: true, opacity: 0.3 })
                 )
             );
         }
 
+        // --- Vehicle Component ---
         function Vehicle() {
-            const { tiles, speed, reset } = useGame();
-            const ref = useRef();
-            const [idx, setIdx] = useState(0);
-            const [prog, setProg] = useState(0);
-            const [falling, setFalling] = useState(false);
+            const { tiles, speed, resetGame } = useGameStore();
+            const carRef = useRef();
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [progress, setProgress] = useState(0);
+            const [isFalling, setIsFalling] = useState(false);
 
-            useFrame((_, delta) => {
-                if (falling) {
-                    ref.current.position.y -= 10 * delta;
-                    ref.current.rotation.x += 5 * delta;
-                    if (ref.current.position.y < -10) {
-                        setFalling(false); setIdx(0); setProg(0); reset();
+            useFrame((state, delta) => {
+                if (isFalling) {
+                    if (carRef.current) {
+                        carRef.current.position.y -= 5 * delta;
+                        carRef.current.rotation.x += 10 * delta;
+                        if (carRef.current.position.y < -5) {
+                            resetGame(); setCurrentIndex(0); setProgress(0); setIsFalling(false);
+                            if (carRef.current) carRef.current.position.y = 0.1;
+                        }
                     }
                     return;
                 }
-
                 if (tiles.length <= 1) return;
-                const nextIdx = idx + 1;
-                const step = (speed * delta) / 0.6;
-                const newProg = prog + step;
-
-                if (newProg >= 1) {
-                    if (nextIdx < tiles.length - 1) {
-                        setIdx(nextIdx); setProg(newProg - 1);
-                    } else if (newProg > 1.2) {
-                        setFalling(true); audio.play(100, 'sawtooth', 1);
-                    } else {
-                        setProg(newProg);
-                    }
-                } else {
-                    setProg(newProg);
+                const currentTile = tiles[currentIndex];
+                const nextTile = tiles[currentIndex + 1];
+                if (!nextTile && progress >= 1) {
+                    setIsFalling(true); audioService.playFall(); return;
                 }
-
-                const currPos = new THREE.Vector3(...tiles[idx].position);
-                const nextPos = tiles[idx+1] ? new THREE.Vector3(...tiles[idx+1].position) : currPos.clone();
-                ref.current.position.copy(currPos.lerp(nextPos, Math.min(prog, 1)));
-                ref.current.position.y += 0.15;
-                if(tiles[idx+1]) ref.current.lookAt(nextPos.x, 0.15, nextPos.z);
+                const newProgress = progress + (speed * delta) / TILE_SIZE;
+                setProgress(newProgress);
+                if (newProgress >= 1 && currentIndex + 1 < tiles.length) {
+                    setCurrentIndex(currentIndex + 1); setProgress(newProgress - 1);
+                }
+                if (carRef.current) {
+                    const start = new THREE.Vector3(...currentTile.position);
+                    const end = nextTile ? new THREE.Vector3(...nextTile.position) : start.clone().add(new THREE.Vector3(0, 0, -TILE_SIZE).applyQuaternion(carRef.current.quaternion));
+                    const pos = start.clone().lerp(end, progress);
+                    carRef.current.position.copy(pos); carRef.current.position.y += 0.1;
+                    if (nextTile) {
+                        const lookAt = new THREE.Vector3(...nextTile.position);
+                        lookAt.y = carRef.current.position.y; carRef.current.lookAt(lookAt);
+                    }
+                }
             });
 
-            return React.createElement('group', { ref },
-                React.createElement(Float, { floatingRange: [0, 0.05] },
-                    React.createElement('mesh', null,
-                        React.createElement('boxGeometry', { args: [0.2, 0.1, 0.3] }),
-                        React.createElement('meshStandardMaterial', { color: falling ? 'red' : 'white' })
-                    )
+            useEffect(() => {
+                if (tiles.length === 1) {
+                    setCurrentIndex(0); setProgress(0); setIsFalling(false);
+                    if (carRef.current) { carRef.current.position.set(0, 0.1, 0); carRef.current.rotation.set(0, 0, 0); }
+                }
+            }, [tiles.length]);
+
+            return React.createElement('group', { ref: carRef },
+                React.createElement('mesh', { castShadow: true },
+                    React.createElement('boxGeometry', { args: [0.15, 0.08, 0.22] }),
+                    React.createElement('meshStandardMaterial', { color: isFalling ? "red" : "white", emissive: isFalling ? "red" : "white", emissiveIntensity: 0.5 })
                 ),
-                React.createElement(Trail, { width: 1.5, length: 10, color: falling ? 'red' : '#00ffff' })
+                React.createElement(Trail, { width: 1, length: 8, color: isFalling ? "red" : "cyan", attenuation: (t) => t * t })
             );
         }
 
-        function Scene() {
+        // --- HUD Component ---
+        function HUD() {
+            const { level, speed, resetGame } = useGameStore();
+            const hudRef = useRef();
+            const { camera } = useThree();
+
+            useFrame(() => {
+                if (!hudRef.current) return;
+                const targetPos = new THREE.Vector3(0.8, -0.5, -1.5).applyQuaternion(camera.quaternion).add(camera.position);
+                hudRef.current.position.lerp(targetPos, 0.1);
+                hudRef.current.quaternion.slerp(camera.quaternion, 0.1);
+            });
+
+            return React.createElement('group', { ref: hudRef },
+                React.createElement(Float, { speed: 2, rotationIntensity: 0.5, floatIntensity: 0.5 },
+                    React.createElement(RoundedBox, { args: [0.6, 0.4, 0.02], radius: 0.02 },
+                        React.createElement('meshStandardMaterial', { color: "#111111", transparent: true, opacity: 0.8 })
+                    ),
+                    React.createElement(Text, { position: [0, 0.05, 0.02], fontSize: 0.15, color: "#00ffcc" }, level),
+                    React.createElement(Text, { position: [0, -0.05, 0.02], fontSize: 0.04, color: "white" }, "TILES PLACED"),
+                    React.createElement(Text, { position: [0, -0.12, 0.02], fontSize: 0.03, color: "#ffaa00" }, `SPEED: ${speed.toFixed(2)} m/s`),
+                    React.createElement('mesh', { position: [0, -0.2, 0.02], onClick: () => { resetGame(); audioService.playReset(); } },
+                        React.createElement(RoundedBox, { args: [0.3, 0.1, 0.02], radius: 0.01 },
+                            React.createElement('meshStandardMaterial', { color: "#ff0055", emissive: "#ff0055", emissiveIntensity: 0.5 })
+                        ),
+                        React.createElement(Text, { position: [0, 0, 0.011], fontSize: 0.04, color: "white" }, "RESET")
+                    )
+                )
+            );
+        }
+
+        // --- Main Scene ---
+        const store = createXRStore({ hand: true, controller: true, emulate: true });
+
+        function SceneContent() {
+            const { mode, setMode } = useGameStore();
+            const xr = useXR();
+            useEffect(() => {
+                if (xr.session) setMode(xr.session.environmentBlendMode === 'additive' ? 'MR' : 'VR');
+            }, [xr.session]);
+
             return React.createElement(React.Fragment, null,
-                React.createElement(Environment, { preset: "city" }),
-                React.createElement('ambientLight', { intensity: 0.2 }),
-                React.createElement('pointLight', { position: [5, 5, 5], intensity: 2 }),
-                React.createElement(Sky, { distance: 450000, sunPosition: [0, 1, 0] }),
-                React.createElement(Road),
-                React.createElement(Vehicle),
-                React.createElement(OrbitControls, { makeDefault: true, target: [0, 0, 0] }),
-                React.createElement(ContactShadows, { resolution: 512, scale: 20, blur: 2, opacity: 0.5, far: 10 })
+                React.createElement(Suspense, { fallback: null },
+                    React.createElement(Environment, { preset: "night" }),
+                    React.createElement('ambientLight', { intensity: 0.5 }),
+                    React.createElement('pointLight', { position: [10, 10, 10], intensity: 1, castShadow: true }),
+                    mode === 'VR' && React.createElement(React.Fragment, null,
+                        React.createElement(Sky, { sunPosition: [100, 20, 100] }),
+                        React.createElement('gridHelper', { args: [100, 100, 0x444444, 0x222222], position: [0, -0.01, 0] })
+                    ),
+                    React.createElement(Road),
+                    React.createElement(Vehicle),
+                    React.createElement(HUD),
+                    React.createElement(OrbitControls, { makeDefault: true }),
+                    React.createElement(ContactShadows, { opacity: 0.4, scale: 10, blur: 2, far: 10, resolution: 256, color: "#000000" })
+                )
             );
         }
 
         function App() {
-            useEffect(() => { document.getElementById('loading').style.display = 'none'; }, []);
-
-            return React.createElement('div', { className: "w-full h-full relative" },
-                React.createElement('div', { className: "absolute top-6 left-6 z-20 flex flex-col gap-4" },
-                    React.createElement('div', null,
-                        React.createElement('h1', { className: "text-4xl font-black tracking-tighter" }, "PATHWEAVER"),
-                        React.createElement('p', { className: "text-xs uppercase tracking-widest text-cyan-400" }, "Infinite Reality Construct")
-                    ),
-                    React.createElement('div', { className: "flex gap-2" },
-                        React.createElement(XRButton, { store, mode: 'immersive-vr', className: "px-6 py-3 bg-white text-black font-bold rounded-full hover:scale-105 transition" }, "START VR"),
-                        React.createElement(XRButton, { store, mode: 'immersive-ar', className: "px-6 py-3 bg-cyan-500 text-white font-bold rounded-full hover:scale-105 transition" }, "START MR")
-                    )
+            return React.createElement('div', { className: "w-full h-screen bg-black relative" },
+                React.createElement('div', { className: "absolute top-4 left-4 z-10 flex gap-2" },
+                    React.createElement(XRButton, { store: store, mode: "immersive-vr", className: "px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 border border-white/20" }, "Enter VR"),
+                    React.createElement(XRButton, { store: store, mode: "immersive-ar", className: "px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 border border-white/20" }, "Enter MR")
                 ),
-                React.createElement(Canvas, { shadows: true, camera: { position: [3, 3, 3], fov: 75 } },
-                    React.createElement(XR, { store },
-                        React.createElement(Suspense, { fallback: null },
-                            React.createElement(Scene)
-                        )
+                React.createElement(Canvas, { shadows: true, camera: { position: [0, 2, 5], fov: 75 } },
+                    React.createElement(XR, { store: store },
+                        React.createElement(SceneContent)
                     )
                 )
             );
         }
 
+        // --- Render ---
         createRoot(document.getElementById('root')).render(React.createElement(App));
     </script>
 </body>
 </html>
+
